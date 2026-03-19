@@ -1,5 +1,2 @@
 pandas
 streamlit
-matplotlib
-xlsxwriter
-pyarrow
