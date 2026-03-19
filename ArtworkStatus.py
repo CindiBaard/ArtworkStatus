@@ -19,7 +19,7 @@ def parse_date(date_str):
     if not date_str or pd.isna(date_str) or date_str == "":
         return None
     try:
-        return datetime.strptime(str(date_str), '%d.%m.%Y').date()
+        return datetime.strptime(str(date_str).strip(), '%d.%m.%Y').date()
     except:
         return None
 
@@ -79,7 +79,12 @@ def main():
                     
                     # --- B. SEARCH LOCAL CSV (Existing Progress) ---
                     if os.path.exists(CSV_FILE):
-                        df_local = pd.read_csv(CSV_FILE, sep=';')
+                        # FIXED: Try multiple encodings to prevent the UnicodeDecodeError
+                        try:
+                            df_local = pd.read_csv(CSV_FILE, sep=';', encoding='utf-8-sig')
+                        except UnicodeDecodeError:
+                            df_local = pd.read_csv(CSV_FILE, sep=';', encoding='latin1')
+                        
                         df_local['Pre-Prod No.'] = df_local['Pre-Prod No.'].apply(clean_val)
                         local_match = df_local[df_local['Pre-Prod No.'] == target]
                         
@@ -102,12 +107,16 @@ def main():
                             st.session_state.found_quoted = parse_date(row.get("Quoted"))
                             
                             st.info(f"💡 Found existing record for {target}. Pre-filling your previous dates.")
+                        else:
+                            # Clear old progress if new ID is searched
+                            for field in form_fields[2:]: # skip client/desc
+                                st.session_state[field] = "" if "date" not in field else None
                     
                     st.success(f"✅ Ready for ID {target}")
                 else:
                     st.error(f"❌ ID '{target}' not found in the Google Sheet.")
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Error during search: {e}")
 
     st.divider()
 
@@ -155,10 +164,11 @@ def main():
                 }
                 try:
                     df_to_save = pd.DataFrame([new_row])
-                    df_to_save.to_csv(CSV_FILE, mode='a', index=False, header=not os.path.exists(CSV_FILE), sep=';')
+                    # FIXED: Save with utf-8-sig to ensure it works across all systems next time
+                    df_to_save.to_csv(CSV_FILE, mode='a', index=False, header=not os.path.exists(CSV_FILE), sep=';', encoding='utf-8-sig')
                     st.success(f"🎉 Updated {search_no}!")
                     
-                    # Reset state for next search
+                    # Reset state
                     for field in form_fields:
                         st.session_state[field] = "" if "date" not in field else None
                 except Exception as e:
