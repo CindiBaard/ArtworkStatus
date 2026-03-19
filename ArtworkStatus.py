@@ -102,7 +102,7 @@ def main():
                 st.error("Please enter a Pre-Prod No. in Step 1 first.")
             else:
                 new_row = {
-                    "Pre-Prod No.": search_no, "Client": client, "Description": description,
+                    "Pre-Prod No.": search_no, "Client": client, "Project Description": project_description,
                     "Artwork required": artwork_req, "STATUS": status, "Comments": comments,
                     "Artwork Received": format_date(date_rec), "Sent Proof for WT_SP": format_date(date_wtsp),
                     "Sent Proof to Client": format_date(date_client), "Proof Approved (Conventional)": format_date(date_appr),
