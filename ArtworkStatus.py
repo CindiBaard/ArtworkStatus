@@ -10,13 +10,11 @@ REF_FILE = 'https://docs.google.com/spreadsheets/d/1TiuVzyZLbLAFQ_Os8mzwURFaFV3G
 
 # --- HELPER FUNCTIONS ---
 def format_date(date_val):
-    """Formats date objects to DD.MM.YYYY string for the CSV."""
     if date_val:
         return date_val.strftime('%d.%m.%Y')
     return ""
 
 def parse_date(date_str):
-    """Converts DD.MM.YYYY string from CSV back to a date object for the form."""
     if not date_str or pd.isna(date_str) or date_str == "":
         return None
     try:
@@ -25,7 +23,6 @@ def parse_date(date_str):
         return None
 
 def clean_val(val):
-    """Cleans up IDs and Text: removes .0 and whitespace."""
     if pd.isna(val): return ""
     s = str(val).strip().replace(',', '')
     if s.endswith('.0'): s = s[:-2]
@@ -35,7 +32,7 @@ def main():
     st.set_page_config(page_title="Artwork Status Portal", layout="wide")
     st.title("🎨 Artwork Status Entry Form")
 
-    # --- SESSION STATE INITIALIZATION ---
+    # --- SESSION STATE ---
     form_fields = [
         "found_client", "found_desc", "found_req", "found_status", 
         "found_comments", "found_date_rec", "found_date_wtsp", "found_date_client",
@@ -50,15 +47,14 @@ def main():
     st.subheader("Step 1: Project Lookup")
     col1, col2 = st.columns([1, 2])
     with col1:
-        search_no = st.text_input("Enter Pre-Prod No. to fetch details", placeholder="e.g. 12326")
+        search_no = st.text_input("Enter Pre-Prod No.", placeholder="e.g. 12326")
     
     if st.button("Search Tracker"):
         if not search_no:
-            st.warning("Please enter a number first.")
+            st.warning("Please enter a number.")
         else:
             try:
                 target = clean_val(search_no)
-                # A. Master Data (Google Sheets)
                 df_ref = pd.read_csv(REF_FILE, encoding='utf-8-sig')
                 df_ref.columns = [str(c).strip() for c in df_ref.columns]
                 id_col = next((c for c in df_ref.columns if "pre" in c.lower() and "no" in c.lower()), "Pre-Prod No.")
@@ -71,7 +67,6 @@ def main():
                     st.session_state.found_client = clean_val(ref_match.iloc[0].get(client_col, ''))
                     st.session_state.found_desc = clean_val(ref_match.iloc[0].get(desc_col, ''))
                     
-                    # B. Existing Progress (Local CSV)
                     if os.path.exists(CSV_FILE):
                         try:
                             df_local = pd.read_csv(CSV_FILE, sep=';', encoding='utf-8-sig')
@@ -96,21 +91,20 @@ def main():
                             st.session_state.found_date_foil = parse_date(row.get("Ordered Foil Block"))
                             st.session_state.found_date_farr = parse_date(row.get("Foil Block Arrived"))
                             st.session_state.found_quoted = parse_date(row.get("Quoted"))
-                            st.info(f"💡 Found existing record for {target}. Pre-filling fields.")
-                    st.success(f"✅ Ready for ID {target}")
+                            st.info("💡 Pulled existing progress from local database.")
+                    st.success(f"✅ Found: {st.session_state.found_client}")
                 else:
-                    st.error(f"❌ ID '{target}' not found in Google Sheets.")
+                    st.error("ID not found in Google Sheets.")
             except Exception as e:
-                st.error(f"Search Error: {e}")
+                st.error(f"Error: {e}")
 
     st.divider()
 
-    # --- STEP 2: ENTRY FORM ---
+    # --- STEP 2: FORM ---
     st.subheader("Step 2: Complete Record Information")
     with st.form("main_form", clear_on_submit=True):
         left, right = st.columns(2)
         with left:
-            st.info(f"Form for ID: **{search_no}**")
             client = st.text_input("Client", value=st.session_state.found_client)
             proj_desc = st.text_input("Project Description", value=st.session_state.found_desc)
             artwork_req = st.selectbox("Artwork Required", ["", "X"], index=1 if st.session_state.found_req == "X" else 0)
@@ -130,7 +124,7 @@ def main():
 
         if st.form_submit_button("Upload Information"):
             if not search_no:
-                st.error("Please search for an ID first.")
+                st.error("Please enter an ID first.")
             else:
                 new_row = {
                     "Pre-Prod No.": search_no, "Client": client, "Project Description": proj_desc,
@@ -143,25 +137,17 @@ def main():
                 }
                 try:
                     df_to_save = pd.DataFrame([new_row])
-                    # Save to main file
                     df_to_save.to_csv(CSV_FILE, mode='a', index=False, header=not os.path.exists(CSV_FILE), sep=';', encoding='utf-8-sig')
-                    # AUTOMATIC BACKUP:
                     df_to_save.to_csv(BACKUP_FILE, mode='a', index=False, header=not os.path.exists(BACKUP_FILE), sep=';', encoding='utf-8-sig')
-                    
-                    st.success(f"🎉 Updated {search_no} and saved backup!")
+                    st.success("🎉 Updated database and created backup!")
                     for field in form_fields: st.session_state[field] = "" if "date" not in field else None
                 except Exception as e:
                     st.error(f"Save Error: {e}")
 
-    # --- STEP 3: DATABASE MANAGEMENT ---
+    # --- STEP 3: TOOLS ---
     st.divider()
     st.subheader("Step 3: Database Tools")
-
-    col_view, col_space = st.columns([1, 2])
-    with col_view:
-        view_db = st.button("🔍 View/Download Database")
-
-    if view_db:
+    if st.button("🔍 View/Download Database"):
         if os.path.exists(CSV_FILE):
             try:
                 try: df_view = pd.read_csv(CSV_FILE, sep=';', encoding='utf-8-sig')
@@ -172,8 +158,29 @@ def main():
             except Exception as e: st.error(f"Error: {e}")
         else: st.warning("No database found.")
 
-    # --- DELETE SECTION (WITH FOOLPROOF LOCK) ---
     with st.expander("⚠️ Danger Zone - Delete a Record"):
         st.write("This will permanently remove the record from the main database.")
-        del_id = st.text_input("Enter ID to Delete")
-        confirm_check = st.checkbox("I confirm I want to delete this
+        del_id = st.text_input("Enter ID to Delete", key="del_id_input")
+        confirm_check = st.checkbox("I confirm I want to delete this record.")
+        verify_text = st.text_input("Type 'DELETE' to confirm", key="verify_input")
+        
+        if st.button("Permanently Delete", type="primary"):
+            if del_id and confirm_check and verify_text == "DELETE":
+                if os.path.exists(CSV_FILE):
+                    try:
+                        try: df_del = pd.read_csv(CSV_FILE, sep=';', encoding='utf-8-sig')
+                        except: df_del = pd.read_csv(CSV_FILE, sep=';', encoding='latin1')
+                        df_del['Pre-Prod No.'] = df_del['Pre-Prod No.'].apply(clean_val)
+                        if clean_val(del_id) in df_del['Pre-Prod No.'].values:
+                            df_updated = df_del[df_del['Pre-Prod No.'] != clean_val(del_id)]
+                            df_updated.to_csv(CSV_FILE, index=False, sep=';', encoding='utf-8-sig')
+                            st.success(f"Deleted ID {del_id}!")
+                            st.rerun()
+                        else: st.error("ID not found.")
+                    except Exception as e: st.error(f"Error: {e}")
+            else: st.warning("Please complete all 3 security steps.")
+
+if __name__ == "__main__":
+    main()
+    # Create a backup copy every time you save
+df_to_save.to_csv("Artwork_Status_Backup.csv", mode='a', index=False, sep=';', header=not os.path.exists("Artwork_Status_Backup.csv"))
