@@ -70,19 +70,30 @@ def main():
             try:
                 target = clean_val(search_no)
                 df_ref = pd.read_csv(REF_FILE, encoding='utf-8-sig')
+                
+                # Clean all column names to remove hidden spaces
                 df_ref.columns = [str(c).strip() for c in df_ref.columns]
+                
+                # 1. Identify ID Column
                 id_col = next((c for c in df_ref.columns if "pre" in c.lower() and "no" in c.lower()), "Pre-Prod No.")
                 df_ref[id_col] = df_ref[id_col].apply(clean_val)
                 ref_match = df_ref[df_ref[id_col] == target]
                 
                 if not ref_match.empty:
-                    # Pull Master Data
+                    # 2. Identify Client Column
                     client_col = next((c for c in df_ref.columns if "client" in c.lower()), "Client")
-                    desc_col = next((c for c in df_ref.columns if "project" in c.lower() and "desc" in c.lower()), "Project Description")
+                    
+                    # 3. Identify Project Description Column (More Robust Search)
+                    # This looks for "project description", then "job", then "description"
+                    desc_col = next((c for c in df_ref.columns if "project" in c.lower() and "desc" in c.lower()), None)
+                    if not desc_col:
+                        desc_col = next((c for c in df_ref.columns if "description" in c.lower() or "job" in c.lower()), "Project Description")
+                    
+                    # Update session state
                     st.session_state.found_client = clean_val(ref_match.iloc[0].get(client_col, ''))
                     st.session_state.found_desc = clean_val(ref_match.iloc[0].get(desc_col, ''))
                     
-                    # Pull Existing Local Data
+                    # Pull Existing Local Data (Progress)
                     if os.path.exists(CSV_FILE):
                         try:
                             df_local = pd.read_csv(CSV_FILE, sep=';', encoding='utf-8-sig')
@@ -107,11 +118,12 @@ def main():
                             st.session_state.found_date_foil = parse_date(row.get("Ordered Foil Block"))
                             st.session_state.found_date_farr = parse_date(row.get("Foil Block Arrived"))
                             st.session_state.found_quoted = parse_date(row.get("Quoted"))
+                    
                     st.success(f"✅ Found: {st.session_state.found_client}")
                 else:
-                    st.error("ID not found in Google Sheets.")
+                    st.error(f"ID '{target}' not found in Google Sheets. Check the sheet for ID {target}.")
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Error during search: {e}")
 
     st.divider()
 
