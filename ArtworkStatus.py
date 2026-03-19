@@ -79,7 +79,7 @@ def main():
         with left:
             st.info(f"Adding entry for ID: **{search_no}**")
             client = st.text_input("Client", value=st.session_state.found_client)
-            description = st.text_input("Description", value=st.session_state.found_desc)
+            project_description = st.text_input("Project Description", value=st.session_state.found_desc)
             
             artwork_req = st.selectbox("Artwork Required", ["", "X"])
             status = st.text_input("Status")
