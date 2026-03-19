@@ -119,6 +119,49 @@ def main():
                 st.error(f"Error during search: {e}")
 
     st.divider()
+    st.subheader("🗑️ Delete an Entry")
+    
+    col_del1, col_del2 = st.columns([1, 2])
+    with col_del1:
+        delete_id = st.text_input("Enter ID to Delete", placeholder="e.g. 12326")
+    
+    if st.button("Delete from Database"):
+        if not delete_id:
+            st.warning("Please enter an ID to delete.")
+        elif os.path.exists(CSV_FILE):
+            try:
+                # 1. Load the existing database
+                try:
+                    df_del = pd.read_csv(CSV_FILE, sep=';', encoding='utf-8-sig')
+                except:
+                    df_del = pd.read_csv(CSV_FILE, sep=';', encoding='latin1')
+                
+                # 2. Clean the ID column and the target to ensure they match
+                df_del['Pre-Prod No.'] = df_del['Pre-Prod No.'].apply(clean_val)
+                target_to_remove = clean_val(delete_id)
+                
+                # 3. Check if it exists before deleting
+                if target_to_remove in df_del['Pre-Prod No.'].values:
+                    # Filter the dataframe to KEEP everything EXCEPT the target ID
+                    df_updated = df_del[df_del['Pre-Prod No.'] != target_to_remove]
+                    
+                    # 4. Save the updated dataframe (overwriting the old file)
+                    df_updated.to_csv(CSV_FILE, index=False, sep=';', encoding='utf-8-sig')
+                    
+                    st.success(f"💥 All entries for ID {target_to_remove} have been deleted.")
+                    
+                    # If the deleted ID was the one currently in the form, clear it
+                    if target_to_remove == clean_val(search_no):
+                        for field in form_fields:
+                            st.session_state[field] = "" if "date" not in field else None
+                        st.experimental_rerun()
+                else:
+                    st.error(f"ID {target_to_remove} not found in the database.")
+                    
+            except Exception as e:
+                st.error(f"Error during deletion: {e}")
+        else:
+            st.error("Database file not found.")
 
     # --- STEP 2: ENTRY FORM ---
     st.subheader("Step 2: Complete Record Information")
