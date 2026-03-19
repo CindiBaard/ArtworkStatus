@@ -182,5 +182,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    # Create a backup copy every time you save
-df_to_save.to_csv("Artwork_Status_Backup.csv", mode='a', index=False, sep=';', header=not os.path.exists("Artwork_Status_Backup.csv"))
