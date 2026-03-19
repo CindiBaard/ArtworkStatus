@@ -84,7 +84,7 @@ if st.button("Search Tracker"):
             except Exception as e:
                 st.error(f"Error connecting to Google Sheets: {e}")
 
-    st.divider()
+st.divider()
 
     # --- STEP 2: ENTRY FORM ---
     st.subheader("Step 2: Complete Record Information")
