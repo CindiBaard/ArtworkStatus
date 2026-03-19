@@ -37,7 +37,8 @@ def main():
     with col1:
         search_no = st.text_input("Enter Pre-Prod No. to fetch details", placeholder="e.g. 12326")
     
-if st.button("Search Tracker"):
+    # INDENTATION FIXED: This now belongs inside the main() function
+    if st.button("Search Tracker"):
         if not search_no:
             st.warning("Please enter a number first.")
         else:
@@ -46,16 +47,12 @@ if st.button("Search Tracker"):
                 df_ref = pd.read_csv(REF_FILE, encoding='utf-8-sig')
                 
                 # 2. Aggressive Cleaning of Column Names
-                # Removes spaces and makes everything lowercase for searching
                 df_ref.columns = [str(c).strip() for c in df_ref.columns]
-                col_map = {c.lower(): c for c in df_ref.columns}
                 
                 # 3. Find the ID Column
-                # Looks for any column containing "pre" and "no" (like "Pre-Prod No.")
                 id_col = next((c for c in df_ref.columns if "pre" in c.lower() and "no" in c.lower()), "Pre-Prod No.")
                 
                 if id_col in df_ref.columns:
-                    # Clean data for a perfect match
                     df_ref[id_col] = df_ref[id_col].apply(clean_val)
                     target = clean_val(search_no)
                     
@@ -63,12 +60,10 @@ if st.button("Search Tracker"):
                     
                     if not match.empty:
                         # 4. SMART LOOKUP for Client
-                        # Looks for 'client', 'customer', or 'account'
                         client_col = next((c for c in df_ref.columns if "client" in c.lower()), "Client")
                         st.session_state.found_client = clean_val(match.iloc[0].get(client_col, ''))
                         
                         # 5. SMART LOOKUP for Project Description
-                        # Looks for 'project description' or just 'description'
                         desc_col = next((c for c in df_ref.columns if "project" in c.lower() and "desc" in c.lower()), None)
                         if not desc_col:
                             desc_col = next((c for c in df_ref.columns if "desc" in c.lower()), "Project Description")
@@ -84,7 +79,7 @@ if st.button("Search Tracker"):
             except Exception as e:
                 st.error(f"Error connecting to Google Sheets: {e}")
 
-st.divider()
+    st.divider()
 
     # --- STEP 2: ENTRY FORM ---
     st.subheader("Step 2: Complete Record Information")
@@ -127,7 +122,6 @@ st.divider()
                 }
                 try:
                     df_to_save = pd.DataFrame([new_row])
-                    # Note: This still saves LOCALLY to your computer
                     df_to_save.to_csv(CSV_FILE, mode='a', index=False, header=not os.path.exists(CSV_FILE), sep=';')
                     st.success(f"🎉 Successfully added {search_no} to {CSV_FILE}!")
                     
