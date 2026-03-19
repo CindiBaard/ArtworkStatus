@@ -1,20 +1,30 @@
 import streamlit as st
 import pandas as pd
 import os
+from datetime import datetime
 
 # --- FILE SETTINGS ---
 CSV_FILE = 'Artwork Status.csv'
-# REPLACED LOCAL FILE WITH LIVE GOOGLE SHEETS CSV LINK:
 REF_FILE = 'https://docs.google.com/spreadsheets/d/1TiuVzyZLbLAFQ_Os8mzwURFaFV3GJNklBY13PCajkmA/gviz/tq?tqx=out:csv'
 
+# --- HELPERS ---
 def format_date(date_val):
-    """Formats date objects to DD.MM.YYYY string."""
+    """Formats date objects to DD.MM.YYYY string for the CSV."""
     if date_val:
         return date_val.strftime('%d.%m.%Y')
     return ""
 
+def parse_date(date_str):
+    """Converts DD.MM.YYYY string from CSV back to a date object for the form."""
+    if not date_str or pd.isna(date_str) or date_str == "":
+        return None
+    try:
+        return datetime.strptime(str(date_str), '%d.%m.%Y').date()
+    except:
+        return None
+
 def clean_val(val):
-    """Cleans up IDs and Text: removes .0 from numbers and strips spaces."""
+    """Cleans up IDs and Text."""
     if pd.isna(val): return ""
     s = str(val).strip().replace(',', '')
     if s.endswith('.0'): s = s[:-2]
@@ -24,11 +34,18 @@ def main():
     st.set_page_config(page_title="Artwork Status Portal", layout="wide")
     st.title("🎨 Artwork Status Entry Form")
 
-    # Persistent storage for the found data
-    if "found_client" not in st.session_state:
-        st.session_state.found_client = ""
-    if "found_desc" not in st.session_state:
-        st.session_state.found_desc = ""
+    # List of all fields we want to remember/pre-fill
+    form_fields = [
+        "found_client", "found_desc", "found_req", "found_status", 
+        "found_comments", "found_date_rec", "found_date_wtsp", "found_date_client",
+        "found_date_appr", "found_date_plates", "found_date_arr", "found_date_foil",
+        "found_date_farr", "found_quoted", "found_spec"
+    ]
+
+    # Initialize all fields in session state if they don't exist
+    for field in form_fields:
+        if field not in st.session_state:
+            st.session_state[field] = "" if "date" not in field else None
 
     # --- STEP 1: LOOKUP ---
     st.subheader("Step 1: Project Lookup")
@@ -37,47 +54,60 @@ def main():
     with col1:
         search_no = st.text_input("Enter Pre-Prod No. to fetch details", placeholder="e.g. 12326")
     
-    # INDENTATION FIXED: This now belongs inside the main() function
     if st.button("Search Tracker"):
         if not search_no:
             st.warning("Please enter a number first.")
         else:
             try:
-                # 1. Fetch from Google Sheets
+                target = clean_val(search_no)
+                
+                # --- A. SEARCH GOOGLE SHEETS (Master Data) ---
                 df_ref = pd.read_csv(REF_FILE, encoding='utf-8-sig')
-                
-                # 2. Aggressive Cleaning of Column Names
                 df_ref.columns = [str(c).strip() for c in df_ref.columns]
-                
-                # 3. Find the ID Column
                 id_col = next((c for c in df_ref.columns if "pre" in c.lower() and "no" in c.lower()), "Pre-Prod No.")
                 
-                if id_col in df_ref.columns:
-                    df_ref[id_col] = df_ref[id_col].apply(clean_val)
-                    target = clean_val(search_no)
+                df_ref[id_col] = df_ref[id_col].apply(clean_val)
+                ref_match = df_ref[df_ref[id_col] == target]
+                
+                if not ref_match.empty:
+                    # Pull Master Data
+                    client_col = next((c for c in df_ref.columns if "client" in c.lower()), "Client")
+                    desc_col = next((c for c in df_ref.columns if "project" in c.lower() and "desc" in c.lower()), "Project Description")
                     
-                    match = df_ref[df_ref[id_col] == target]
+                    st.session_state.found_client = clean_val(ref_match.iloc[0].get(client_col, ''))
+                    st.session_state.found_desc = clean_val(ref_match.iloc[0].get(desc_col, ''))
                     
-                    if not match.empty:
-                        # 4. SMART LOOKUP for Client
-                        client_col = next((c for c in df_ref.columns if "client" in c.lower()), "Client")
-                        st.session_state.found_client = clean_val(match.iloc[0].get(client_col, ''))
+                    # --- B. SEARCH LOCAL CSV (Existing Progress) ---
+                    if os.path.exists(CSV_FILE):
+                        df_local = pd.read_csv(CSV_FILE, sep=';')
+                        df_local['Pre-Prod No.'] = df_local['Pre-Prod No.'].apply(clean_val)
+                        local_match = df_local[df_local['Pre-Prod No.'] == target]
                         
-                        # 5. SMART LOOKUP for Project Description
-                        desc_col = next((c for c in df_ref.columns if "project" in c.lower() and "desc" in c.lower()), None)
-                        if not desc_col:
-                            desc_col = next((c for c in df_ref.columns if "desc" in c.lower()), "Project Description")
-                        
-                        st.session_state.found_desc = clean_val(match.iloc[0].get(desc_col, ''))
-                        
-                        st.success(f"✅ Found ID {target}: {st.session_state.found_client}")
-                    else:
-                        st.error(f"❌ ID '{target}' not found in the live Google Sheet.")
+                        if not local_match.empty:
+                            row = local_match.iloc[-1] # Get the latest entry
+                            st.session_state.found_req = row.get("Artwork required", "")
+                            st.session_state.found_status = row.get("STATUS", "")
+                            st.session_state.found_comments = row.get("Comments", "")
+                            st.session_state.found_spec = row.get("Spec Supplied", "")
+                            
+                            # Pull and Parse Dates
+                            st.session_state.found_date_rec = parse_date(row.get("Artwork Received"))
+                            st.session_state.found_date_wtsp = parse_date(row.get("Sent Proof for WT_SP"))
+                            st.session_state.found_date_client = parse_date(row.get("Sent Proof to Client"))
+                            st.session_state.found_date_appr = parse_date(row.get("Proof Approved (Conventional)"))
+                            st.session_state.found_date_plates = parse_date(row.get("Ordered Plates"))
+                            st.session_state.found_date_arr = parse_date(row.get("Plates Arrived"))
+                            st.session_state.found_date_foil = parse_date(row.get("Ordered Foil Block"))
+                            st.session_state.found_date_farr = parse_date(row.get("Foil Block Arrived"))
+                            st.session_state.found_quoted = parse_date(row.get("Quoted"))
+                            
+                            st.info(f"💡 Found existing record for {target}. Pre-filling your previous dates.")
+                    
+                    st.success(f"✅ Ready for ID {target}")
                 else:
-                    st.error(f"Could not find the ID column. Found columns: {list(df_ref.columns)[:5]}...")
-                    
+                    st.error(f"❌ ID '{target}' not found in the Google Sheet.")
             except Exception as e:
-                st.error(f"Error connecting to Google Sheets: {e}")
+                st.error(f"Error: {e}")
 
     st.divider()
 
@@ -87,32 +117,35 @@ def main():
         left, right = st.columns(2)
         
         with left:
-            st.info(f"Adding entry for ID: **{search_no}**")
+            st.info(f"Form for ID: **{search_no}**")
             client = st.text_input("Client", value=st.session_state.found_client)
-            project_description = st.text_input("Project Description", value=st.session_state.found_desc)
+            proj_desc = st.text_input("Project Description", value=st.session_state.found_desc)
             
-            artwork_req = st.selectbox("Artwork Required", ["", "X"])
-            status = st.text_input("Status")
-            comments = st.text_area("Comments")
-            date_rec = st.date_input("Artwork Received", value=None, format="DD/MM/YYYY")
-            date_wtsp = st.date_input("Sent Proof for WT_SP", value=None, format="DD/MM/YYYY")
+            artwork_req = st.selectbox("Artwork Required", ["", "X"], 
+                                      index=1 if st.session_state.found_req == "X" else 0)
+            status = st.text_input("Status", value=st.session_state.found_status)
+            comments = st.text_area("Comments", value=st.session_state.found_comments)
+            
+            date_rec = st.date_input("Artwork Received", value=st.session_state.found_date_rec, format="DD/MM/YYYY")
+            date_wtsp = st.date_input("Sent Proof for WT_SP", value=st.session_state.found_date_wtsp, format="DD/MM/YYYY")
 
         with right:
-            date_client = st.date_input("Sent Proof to Client", value=None, format="DD/MM/YYYY")
-            date_appr = st.date_input("Proof Approved", value=None, format="DD/MM/YYYY")
-            date_plates = st.date_input("Ordered Plates", value=None, format="DD/MM/YYYY")
-            date_arr = st.date_input("Plates Arrived", value=None, format="DD/MM/YYYY")
-            date_foil = st.date_input("Ordered Foil Block", value=None, format="DD/MM/YYYY")
-            date_farr = st.date_input("Foil Block Arrived", value=None, format="DD/MM/YYYY")
-            quoted = st.date_input("Quoted", value=None, format="DD/MM/YYYY")
-            spec = st.selectbox("Spec Supplied", ["", "X"])
+            date_client = st.date_input("Sent Proof to Client", value=st.session_state.found_date_client, format="DD/MM/YYYY")
+            date_appr = st.date_input("Proof Approved", value=st.session_state.found_date_appr, format="DD/MM/YYYY")
+            date_plates = st.date_input("Ordered Plates", value=st.session_state.found_date_plates, format="DD/MM/YYYY")
+            date_arr = st.date_input("Plates Arrived", value=st.session_state.found_date_arr, format="DD/MM/YYYY")
+            date_foil = st.date_input("Ordered Foil Block", value=st.session_state.found_date_foil, format="DD/MM/YYYY")
+            date_farr = st.date_input("Foil Block Arrived", value=st.session_state.found_date_farr, format="DD/MM/YYYY")
+            quoted = st.date_input("Quoted", value=st.session_state.found_quoted, format="DD/MM/YYYY")
+            spec = st.selectbox("Spec Supplied", ["", "X"], 
+                               index=1 if st.session_state.found_spec == "X" else 0)
 
         if st.form_submit_button("Upload Information"):
             if not search_no:
-                st.error("Please enter a Pre-Prod No. in Step 1 first.")
+                st.error("Please enter a Pre-Prod No. first.")
             else:
                 new_row = {
-                    "Pre-Prod No.": search_no, "Client": client, "Project Description": project_description,
+                    "Pre-Prod No.": search_no, "Client": client, "Project Description": proj_desc,
                     "Artwork required": artwork_req, "STATUS": status, "Comments": comments,
                     "Artwork Received": format_date(date_rec), "Sent Proof for WT_SP": format_date(date_wtsp),
                     "Sent Proof to Client": format_date(date_client), "Proof Approved (Conventional)": format_date(date_appr),
@@ -123,12 +156,13 @@ def main():
                 try:
                     df_to_save = pd.DataFrame([new_row])
                     df_to_save.to_csv(CSV_FILE, mode='a', index=False, header=not os.path.exists(CSV_FILE), sep=';')
-                    st.success(f"🎉 Successfully added {search_no} to {CSV_FILE}!")
+                    st.success(f"🎉 Updated {search_no}!")
                     
-                    st.session_state.found_client = ""
-                    st.session_state.found_desc = ""
+                    # Reset state for next search
+                    for field in form_fields:
+                        st.session_state[field] = "" if "date" not in field else None
                 except Exception as e:
-                    st.error(f"Error saving data locally: {e}")
+                    st.error(f"Error saving: {e}")
 
 if __name__ == "__main__":
     main()
