@@ -37,35 +37,50 @@ def main():
     with col1:
         search_no = st.text_input("Enter Pre-Prod No. to fetch details", placeholder="e.g. 12326")
     
-    if st.button("Search Tracker"):
+if st.button("Search Tracker"):
         if not search_no:
             st.warning("Please enter a number first.")
         else:
             try:
-                # UPDATED: We now read directly from the URL. 
-                # Since it's a URL, we don't use sep=None (it's standard CSV)
+                # 1. Fetch from Google Sheets
                 df_ref = pd.read_csv(REF_FILE, encoding='utf-8-sig')
                 
-                # Clean all column names
+                # 2. Aggressive Cleaning of Column Names
+                # Removes spaces and makes everything lowercase for searching
                 df_ref.columns = [str(c).strip() for c in df_ref.columns]
+                col_map = {c.lower(): c for c in df_ref.columns}
                 
-                id_col = 'Pre-Prod No.'
+                # 3. Find the ID Column
+                # Looks for any column containing "pre" and "no" (like "Pre-Prod No.")
+                id_col = next((c for c in df_ref.columns if "pre" in c.lower() and "no" in c.lower()), "Pre-Prod No.")
                 
                 if id_col in df_ref.columns:
+                    # Clean data for a perfect match
                     df_ref[id_col] = df_ref[id_col].apply(clean_val)
                     target = clean_val(search_no)
                     
                     match = df_ref[df_ref[id_col] == target]
                     
                     if not match.empty:
-                        # Success: Populate session state
-                        st.session_state.found_client = clean_val(match.iloc[0].get('Client', ''))
-                        st.session_state.found_desc = clean_val(match.iloc[0].get('Project Description', ''))
-                        st.success(f"✅ Found: {st.session_state.found_client}")
+                        # 4. SMART LOOKUP for Client
+                        # Looks for 'client', 'customer', or 'account'
+                        client_col = next((c for c in df_ref.columns if "client" in c.lower()), "Client")
+                        st.session_state.found_client = clean_val(match.iloc[0].get(client_col, ''))
+                        
+                        # 5. SMART LOOKUP for Project Description
+                        # Looks for 'project description' or just 'description'
+                        desc_col = next((c for c in df_ref.columns if "project" in c.lower() and "desc" in c.lower()), None)
+                        if not desc_col:
+                            desc_col = next((c for c in df_ref.columns if "desc" in c.lower()), "Project Description")
+                        
+                        st.session_state.found_desc = clean_val(match.iloc[0].get(desc_col, ''))
+                        
+                        st.success(f"✅ Found ID {target}: {st.session_state.found_client}")
                     else:
                         st.error(f"❌ ID '{target}' not found in the live Google Sheet.")
                 else:
-                    st.error(f"Column '{id_col}' not found. Found: {list(df_ref.columns)[:5]}")
+                    st.error(f"Could not find the ID column. Found columns: {list(df_ref.columns)[:5]}...")
+                    
             except Exception as e:
                 st.error(f"Error connecting to Google Sheets: {e}")
 
