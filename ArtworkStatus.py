@@ -176,3 +176,31 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    st.divider()
+    st.subheader("Step 3: Database Management")
+
+    if st.button("🔍 View Artwork Status Database"):
+        if os.path.exists(CSV_FILE):
+            try:
+                # Use the same robust encoding logic we used for the search
+                try:
+                    df_view = pd.read_csv(CSV_FILE, sep=';', encoding='utf-8-sig')
+                except:
+                    df_view = pd.read_csv(CSV_FILE, sep=';', encoding='latin1')
+                
+                # Show the data in a searchable table
+                st.dataframe(df_view, use_container_width=True)
+                
+                # Add a download button so you can open it in Excel easily
+                csv_data = df_view.to_csv(index=False, sep=';').encode('utf-8-sig')
+                st.download_button(
+                    label="📥 Download Database as CSV",
+                    data=csv_data,
+                    file_name="Artwork_Status_Export.csv",
+                    mime="text/csv",
+                )
+            except Exception as e:
+                st.error(f"Error loading database: {e}")
+        else:
+            st.warning("The database file does not exist yet. Submit your first record to create it!")
