@@ -10,12 +10,14 @@ REF_FILE = 'https://docs.google.com/spreadsheets/d/1TiuVzyZLbLAFQ_Os8mzwURFaFV3G
 
 # --- HELPER FUNCTIONS ---
 def format_date(date_val):
+    """Converts date object to DD.MM.YYYY string for CSV."""
     if date_val:
         return date_val.strftime('%d.%m.%Y')
     return ""
 
 def parse_date(date_str):
-    if not date_str or pd.isna(date_str) or date_str == "":
+    """Converts string from CSV back to date object for form."""
+    if not date_str or pd.isna(date_str) or str(date_str).strip() == "":
         return None
     try:
         return datetime.strptime(str(date_str).strip(), '%d.%m.%Y').date()
@@ -23,6 +25,7 @@ def parse_date(date_str):
         return None
 
 def clean_val(val):
+    """Cleans up IDs and whitespace."""
     if pd.isna(val): return ""
     s = str(val).strip().replace(',', '')
     if s.endswith('.0'): s = s[:-2]
@@ -32,16 +35,27 @@ def main():
     st.set_page_config(page_title="Artwork Status Portal", layout="wide")
     st.title("🎨 Artwork Status Entry Form")
 
-    # --- SESSION STATE ---
-    form_fields = [
-        "found_client", "found_desc", "found_req", "found_status", 
-        "found_comments", "found_date_rec", "found_date_wtsp", "found_date_client",
-        "found_date_appr", "found_date_plates", "found_date_arr", "found_date_foil",
-        "found_date_farr", "found_quoted", "found_spec"
+    # --- SESSION STATE INITIALIZATION ---
+    # We explicitly define which fields are dates to avoid the "quoted" error
+    date_fields = [
+        "found_date_rec", "found_date_wtsp", "found_date_client",
+        "found_date_appr", "found_date_plates", "found_date_arr",
+        "found_date_foil", "found_date_farr", "found_quoted"
     ]
-    for field in form_fields:
+    text_fields = [
+        "found_client", "found_desc", "found_req", "found_status", 
+        "found_comments", "found_spec"
+    ]
+    
+    all_fields = date_fields + text_fields
+
+    for field in all_fields:
         if field not in st.session_state:
-            st.session_state[field] = "" if "date" not in field else None
+            st.session_state[field] = None if field in date_fields else ""
+
+    def reset_form_state():
+        for field in all_fields:
+            st.session_state[field] = None if field in date_fields else ""
 
     # --- STEP 1: LOOKUP ---
     st.subheader("Step 1: Project Lookup")
@@ -62,11 +76,13 @@ def main():
                 ref_match = df_ref[df_ref[id_col] == target]
                 
                 if not ref_match.empty:
+                    # Pull Master Data
                     client_col = next((c for c in df_ref.columns if "client" in c.lower()), "Client")
                     desc_col = next((c for c in df_ref.columns if "project" in c.lower() and "desc" in c.lower()), "Project Description")
                     st.session_state.found_client = clean_val(ref_match.iloc[0].get(client_col, ''))
                     st.session_state.found_desc = clean_val(ref_match.iloc[0].get(desc_col, ''))
                     
+                    # Pull Existing Local Data
                     if os.path.exists(CSV_FILE):
                         try:
                             df_local = pd.read_csv(CSV_FILE, sep=';', encoding='utf-8-sig')
@@ -91,7 +107,6 @@ def main():
                             st.session_state.found_date_foil = parse_date(row.get("Ordered Foil Block"))
                             st.session_state.found_date_farr = parse_date(row.get("Foil Block Arrived"))
                             st.session_state.found_quoted = parse_date(row.get("Quoted"))
-                            st.info("💡 Pulled existing progress from local database.")
                     st.success(f"✅ Found: {st.session_state.found_client}")
                 else:
                     st.error("ID not found in Google Sheets.")
@@ -105,6 +120,7 @@ def main():
     with st.form("main_form", clear_on_submit=True):
         left, right = st.columns(2)
         with left:
+            st.info(f"Editing ID: **{search_no if search_no else 'None'}**")
             client = st.text_input("Client", value=st.session_state.found_client)
             proj_desc = st.text_input("Project Description", value=st.session_state.found_desc)
             artwork_req = st.selectbox("Artwork Required", ["", "X"], index=1 if st.session_state.found_req == "X" else 0)
@@ -122,9 +138,11 @@ def main():
             quoted = st.date_input("Quoted", value=st.session_state.found_quoted, format="DD/MM/YYYY")
             spec = st.selectbox("Spec Supplied", ["", "X"], index=1 if st.session_state.found_spec == "X" else 0)
 
-        if st.form_submit_button("Upload Information"):
+        # The Submit Button
+        submit = st.form_submit_button("Upload Information")
+        if submit:
             if not search_no:
-                st.error("Please enter an ID first.")
+                st.error("Please enter a Pre-Prod No. in Step 1 first.")
             else:
                 new_row = {
                     "Pre-Prod No.": search_no, "Client": client, "Project Description": proj_desc,
@@ -139,8 +157,9 @@ def main():
                     df_to_save = pd.DataFrame([new_row])
                     df_to_save.to_csv(CSV_FILE, mode='a', index=False, header=not os.path.exists(CSV_FILE), sep=';', encoding='utf-8-sig')
                     df_to_save.to_csv(BACKUP_FILE, mode='a', index=False, header=not os.path.exists(BACKUP_FILE), sep=';', encoding='utf-8-sig')
-                    st.success("🎉 Updated database and created backup!")
-                    for field in form_fields: st.session_state[field] = "" if "date" not in field else None
+                    st.success("🎉 Database Updated!")
+                    reset_form_state()
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Save Error: {e}")
 
@@ -159,8 +178,7 @@ def main():
         else: st.warning("No database found.")
 
     with st.expander("⚠️ Danger Zone - Delete a Record"):
-        st.write("This will permanently remove the record from the main database.")
-        del_id = st.text_input("Enter ID to Delete", key="del_id_input")
+        del_id = st.text_input("Enter ID to Delete", key="del_input")
         confirm_check = st.checkbox("I confirm I want to delete this record.")
         verify_text = st.text_input("Type 'DELETE' to confirm", key="verify_input")
         
@@ -178,7 +196,7 @@ def main():
                             st.rerun()
                         else: st.error("ID not found.")
                     except Exception as e: st.error(f"Error: {e}")
-            else: st.warning("Please complete all 3 security steps.")
+            else: st.warning("Please complete all security steps.")
 
 if __name__ == "__main__":
     main()
